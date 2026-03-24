@@ -1,3 +1,4 @@
+/*
 package schema
 
 import "sync"
@@ -79,3 +80,19 @@ func (s *State) GetMessages() []Message {
 	copy(msgs, s.Messages)
 	return msgs
 }
+*/
+
+package schema
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+// ==========================================
+// Phase 2 新增：决策回放记录 (TraceLog)
+// ==========================================
+
+// TraceLog 记录了 Agent 在图执行过程中的一个关键动作。
+// 就像飞机的黑匣子，它能让我们事后回放 Agent 的思考和执行过程。

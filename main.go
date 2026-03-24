@@ -198,7 +198,13 @@ func main() {
 	fmt.Println("========================================")
 
 	// 1. 初始化核心组件
-	apiKey := "sk-e1eb6b13afe14f6c93d11d6ce3035b9e" // 👈 填入你的 DeepSeek API Key
+	// 读取本地 API Key 文件
+	apiKeyBytes, err := os.ReadFile("api.txt")
+	if err != nil {
+		log.Fatalf("❌ 无法读取 api.txt 文件: %v\n请在根目录创建 api.txt 并填入你的 API Key", err)
+	}
+	apiKey := strings.TrimSpace(string(apiKeyBytes))
+	
 	provider := llm.NewOpenAIProvider("https://api.deepseek.com/v1", apiKey, "deepseek-chat")
 	shortMem := memory.NewShortTermMemory(6) // 短期记忆：记住最近 6 句话
 	dbPath := "long_term_memory.txt"         // 长期记忆文件路径

@@ -20,3 +20,6 @@ go.work
 # Trae/VSCode settings
 .vscode/
 .idea/
+
+# API Key file
+api.txt
