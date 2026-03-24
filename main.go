@@ -119,7 +119,11 @@ func main() {
 	// 1. 初始化 LLM 客户端
 	// ==========================================
 
-	apiKey := "sk-e1eb6b13afe14f6c93d11d6ce3035b9e"
+	apiKeyBytes, err := os.ReadFile("api.txt")
+	if err != nil {
+		log.Fatalf("无法读取 api.txt 文件: %v", err)
+	}
+	apiKey := strings.TrimSpace(string(apiKeyBytes))
 	provider := llm.NewOpenAIProvider(
 		"https://api.deepseek.com/v1",
 		apiKey,
