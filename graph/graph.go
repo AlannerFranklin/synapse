@@ -38,21 +38,29 @@ func (g *Graph) Run(ctx context.Context, state *schema.State) error {
 			return fmt.Errorf("graph execution canceled: %w", err)
 		}
 		fmt.Printf("▶ 正在执行节点: [%s]\n", node.Name)
+
+		// [Phase 2] 记录节点开始执行的 TraceLog
+		state.AddTrace(node.Name, "NodeStart", "开始执行该节点", nil)
+
 		// 根据节点类型，决定怎么执行
 		if node.Type == NodeTypeNormal {
 			// ============================
 			// 串行执行
 			// ============================
 			if err := node.Run(ctx, state); err != nil {
+				state.AddTrace(node.Name, "NodeError", fmt.Sprintf("串行节点执行失败: %v", err), nil)
 				return fmt.Errorf("node [%s] failed: %w", node.Name, err)
 			}
+			state.AddTrace(node.Name, "NodeSuccess", "串行节点执行成功", nil)
 		} else if node.Type == NodeTypeParallel {
 			// ============================
 			// 并行执行 (Verilog思维启动！)
 			// ============================
 			if err := g.runParallel(ctx, state, node); err != nil {
+				state.AddTrace(node.Name, "NodeError", fmt.Sprintf("并行节点执行失败: %v", err), nil)
 				return fmt.Errorf("parallel node [%s] failed: %w", node.Name, err)
 			}
+			state.AddTrace(node.Name, "NodeSuccess", "并行节点的所有子任务执行成功", nil)
 		}
 	}
 	return nil

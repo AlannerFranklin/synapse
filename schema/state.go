@@ -96,3 +96,117 @@ import (
 
 // TraceLog 记录了 Agent 在图执行过程中的一个关键动作。
 // 就像飞机的黑匣子，它能让我们事后回放 Agent 的思考和执行过程。
+
+type TraceLog struct {
+	Timestamp time.Time // 记录发生的时间
+	NodeName  string    // 是哪个节点触发的（比如 "SearchNode"）
+	Action    string    // 做了什么动作（比如 "调用搜索引擎"）
+	Reasoning string    // 为什么这么做（大模型的思考过程）
+	Result    any       // 执行的结果（可以是字符串，也可以是报错信息）
+}
+
+// State 表示在 DAG（有向无环图）执行过程中，在各个节点之间流转的全局状态。
+// 它必须是并发安全的，因为可能会有多个节点并行运行并同时修改它。
+
+type State struct {
+	mu sync.RWMutex
+
+	// Messages 记录了这一轮图执行过程中的所有对话消息
+	Messages []Message
+
+	// Data 用于存放各个节点产生的一些中间数据（比如搜索结果、计算结果）
+	Data map[string]any
+
+	// Traces 存放所有的执行轨迹（黑匣子记录）
+	Traces []TraceLog
+}
+
+
+func NewState() *State {
+	return &State{
+		Messages: make([]Message, 0),
+		Data:     make(map[string]any),
+		Traces:   make([]TraceLog, 0), // 初始化轨迹切片
+	}
+}
+
+// SetData 往状态里写入中间数据（并发安全）
+func (s *State) SetData(key string, value any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Data[key] = value
+}
+
+// GetData 从状态里读取中间数据（并发安全）
+func (s *State) GetData(key string) (any, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	val, ok := s.Data[key]
+	return val, ok
+}
+
+// AppendMessage 向状态中追加一条消息（并发安全）
+func (s *State) AppendMessage(msg Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Messages = append(s.Messages, msg)
+}
+
+// GetMessages 获取当前所有的消息（并发安全）
+func (s *State) GetMessages() []Message {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	msgs := make([]Message, len(s.Messages))
+	copy(msgs, s.Messages)
+	return msgs
+}
+
+// ==========================================
+// Phase 2 新增：轨迹记录方法
+// ==========================================
+
+// AddTrace 添加一条执行轨迹（并发安全）
+
+func (s *State) AddTrace(nodeName, action, reasoning string, result any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.Traces = append(s.Traces, TraceLog{
+		Timestamp: time.Now(), // 自动打上当前时间戳
+		NodeName:  nodeName,
+		Action:    action,
+		Reasoning: reasoning,
+		Result:    result,
+	})
+}
+// PrintTraces 打印整个图的执行回放记录（非常酷炫的终端输出）
+func (s *State) PrintTraces() {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	fmt.Println("\n==========================================")
+	fmt.Println("⏪ [Agent 决策回放 (Trace Replay)]")
+	fmt.Println("==========================================")
+
+	if len(s.Traces) == 0 {
+		fmt.Println("没有记录到任何执行轨迹。")
+		return
+	}
+	for i, trace := range s.Traces {
+		// 格式化时间，比如 "15:04:05.000"
+		timeStr := trace.Timestamp.Format("15:04:05.000")
+		fmt.Printf("[%d] ⏰ 时间: %s | 📍 节点: %s\n", i+1, timeStr, trace.NodeName)
+		
+		if trace.Reasoning != "" {
+			fmt.Printf("   💡 思考: %s\n", trace.Reasoning)
+		}
+		
+		fmt.Printf("   🎯 动作: %s\n", trace.Action)
+		
+		if trace.Result != nil {
+			fmt.Printf("   📄 结果: %v\n", trace.Result)
+		}
+		fmt.Println("------------------------------------------")
+	}
+}

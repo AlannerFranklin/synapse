@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json" // 👈 新增：用于解析 JSON
 	"fmt"
 	"log"
 	"os"
@@ -235,7 +236,7 @@ func main() {
 	// ==========================================
 	// 节点 B: 大模型核心思考
 	// ==========================================
-	agentGraph.AddNode(graph.NewNode("LLM_Thinking", func(ctx context.Context, state *schema.State) error {
+	/*agentGraph.AddNode(graph.NewNode("LLM_Thinking", func(ctx context.Context, state *schema.State) error {
 		// 取出用户当前的输入
 		userInput, _ := state.GetData("user_input")
 		longTermKnowledge, _ := state.GetData("long_term_knowledge")
@@ -262,6 +263,76 @@ func main() {
 		state.SetData("ai_response", resp.Content)
 
 		fmt.Printf("\n🤖 AI: %s\n", resp.Content)
+		return nil
+	}))*/
+	// ==========================================
+	// 节点 B: 大模型核心思考 (带 JSON 思考链捕获)
+	// ==========================================
+	agentGraph.AddNode(graph.NewNode("LLM_Thinking", func(ctx context.Context, state *schema.State) error {
+		userInput, _ := state.GetData("user_input")
+		longTermKnowledge, _ := state.GetData("long_term_knowledge")
+
+		// 1. 改造系统提示词，强迫它输出 JSON
+		sysPrompt := fmt.Sprintf(`你是一个聪明的 AI 助手。
+这是你对用户的长期记忆：[%s]
+
+【强制要求】
+你必须且只能返回一个 JSON 格式的字符串，不能包含任何其他多余的文字或 Markdown 代码块标记（不要输出 json 标记）。
+JSON 的结构必须如下：
+{
+  "thought": "这里写你一步步的思考过程，你是怎么想的",
+  "response": "这里写你最终要回答给用户的话"
+}`, longTermKnowledge)
+
+		finalMessages := []schema.Message{{Role: schema.RoleSystem, Content: sysPrompt}}
+		finalMessages = append(finalMessages, shortMem.GetMessages()...)
+		finalMessages = append(finalMessages, schema.Message{Role: schema.RoleUser, Content: userInput.(string)})
+
+		// 2. 调用大模型
+		resp, err := provider.Generate(ctx, finalMessages, &llm.GenerateOptions{Temperature: 0.7})
+		if err != nil {
+			return err
+		}
+
+		// ==========================================
+		// 语法教学：Go 语言解析 JSON (反序列化)
+		// ==========================================
+		// 在 Go 中，我们通常定义一个结构体 (struct) 来接收 JSON 数据。
+		// 结构体字段后面的 `json:"xxx"` 叫做 Tag（标签），告诉 Go 的 json 包：
+		// "请把 JSON 里的 thought 字段塞到我的 Thought 变量里"。
+		type LLMResponse struct {
+			Thought  string `json:"thought"`
+			Response string `json:"response"`
+		}
+
+		var parsedResp LLMResponse
+		// json.Unmarshal 接收两个参数：
+		// 参数1：要解析的 JSON 字符串的字节数组 ([]byte)
+		// 参数2：你要把数据存到哪里的指针 (&parsedResp)
+		err = json.Unmarshal([]byte(resp.Content), &parsedResp)
+		if err != nil {
+			// 如果大模型不听话，没返回标准 JSON，我们就回退到普通模式
+			fmt.Printf("\n🤖 AI: %s\n", resp.Content)
+			state.AddTrace("LLM_Thinking", "直接回复(非JSON)", "模型未按要求输出JSON", resp.Content)
+			
+			shortMem.AddMessage(schema.Message{Role: schema.RoleUser, Content: userInput.(string)})
+			shortMem.AddMessage(resp)
+			state.SetData("ai_response", resp.Content)
+			return nil
+		}
+
+		// 3. 成功解析！记录 TraceLog 并保存记忆
+		fmt.Printf("\n🤔 [AI 思考过程]: %s\n", parsedResp.Thought)
+		fmt.Printf("🤖 AI: %s\n", parsedResp.Response)
+
+		// 将大模型的思考过程写入我们刚做的 Trace 记录里！
+		state.AddTrace("LLM_Thinking", "分析与回答", parsedResp.Thought, parsedResp.Response)
+
+		// 保存到短期记忆（注意：存给大模型看的只存最终回复，别把思考过程也存进去了，会浪费 Token）
+		shortMem.AddMessage(schema.Message{Role: schema.RoleUser, Content: userInput.(string)})
+		shortMem.AddMessage(schema.Message{Role: schema.RoleAssistant, Content: parsedResp.Response})
+		state.SetData("ai_response", parsedResp.Response)
+
 		return nil
 	}))
 	// ==========================================
@@ -333,3 +404,5 @@ func main() {
 		}
 	}
 }
+
+
