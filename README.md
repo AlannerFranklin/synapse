@@ -39,10 +39,16 @@ Synapse 旨在提供一个**极简、原生、高性能**的替代方案：
 2. 将你的 DeepSeek API Key（例如 `sk-xxxxxx`）直接粘贴到文件中，不要包含任何多余空格或换行。
 3. `api.txt` 已被加入 `.gitignore`，不会被提交到版本库中。
 
-### Phase 2: 高级可观测性 (进行中)
+### Phase 2: 高级可观测性 (已完成)
 - [x] **TraceLog 结构**：改造全局状态，支持执行轨迹记录
 - [x] **JSON 思考链解析**：强迫 LLM 输出思考过程并捕获
-- [ ] **回放引擎 (Replayer)**：在终端实现 `/trace` 命令回放功能
+- [x] **回放引擎 (Replayer)**：在终端实现 `/trace` 命令回放功能
+
+### Phase 3: Blueprint Tree 蓝图树引擎 (即将开始，核心护城河)
+放弃传统的单向 DAG，构建**带状态快照的双向多叉树**：
+- [ ] **State Snapshot (状态快照)**：节点间状态深度拷贝，实现时空穿梭与回滚。
+- [ ] **Tree-based Graph (树形调度器)**：支持节点的分支 (Fork) 与重演 (Replay)。
+- [ ] **Blueprint Parser (蓝图协议)**：支持 JSON/YAML 格式的 Agent 逻辑导入导出与分享。
 
 ## 📄 许可证
-MIT License
+本项目采用 **Apache License 2.0** 协议开源。

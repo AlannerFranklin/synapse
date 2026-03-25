@@ -381,6 +381,10 @@ JSON 的结构必须如下：
 	// 3. 启动交互循环，每次用户输入都跑一遍 Graph
 	// ==========================================
 	reader := bufio.NewReader(os.Stdin)
+	
+	// 【Phase 2 新增】：在循环外部创建一个全局的 State，用于贯穿整个对话
+	globalState := schema.NewState()
+
 	for {
 		fmt.Print("\n🧑 你: ")
 		input, _ := reader.ReadString('\n')
@@ -393,12 +397,20 @@ JSON 的结构必须如下：
 			continue
 		}
 
-		// 每次运行 Graph 前，创建一个新的状态，把用户的输入放进去
-		state := schema.NewState()
-		state.SetData("user_input", input)
+		// 【Phase 2 新增】：拦截 /trace 命令
+		if input == "/trace" {
+			globalState.PrintTraces()
+			continue
+		}
+
+		// 每次运行 Graph 前，清空上一轮的轨迹，但保留数据
+		globalState.Traces = make([]schema.TraceLog, 0)
+		
+		// 把用户最新的输入放进去
+		globalState.SetData("user_input", input)
 
 		// 运行整个图！
-		err := agentGraph.Run(context.Background(), state)
+		err := agentGraph.Run(context.Background(), globalState)
 		if err != nil {
 			log.Printf("Graph 运行出错: %v\n", err)
 		}
