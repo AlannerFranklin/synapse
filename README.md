@@ -1,54 +1,58 @@
-# Synapse 🧠
+# Synapse - 模块化 AI Agent 框架
 
-一个主打 **并行执行 (DAG)** 与 **深度记忆 (Memory)** 的轻量级 Go 语言 LLM Agent 框架。
+**Synapse** 是一个从零开始使用纯 Go 语言编写的模块化 AI Agent 执行框架。它探索并实现了从简单的函数调用，到有向无环图（DAG），再到基于蓝图树（Blueprint Tree）的复杂状态执行模型。本项目旨在提供一个轻量、透明且可扩展的 Agent 构建范式。
 
-## 🌟 为什么选择 Synapse？
+## 🌟 核心特性
 
-市面上已经有了 LangChain、Eino 等优秀的框架，但它们往往为了兼容性而引入了非常沉重的抽象层。
-Synapse 旨在提供一个**极简、原生、高性能**的替代方案：
-- **Go 原生并发**：利用 Go 的 `goroutine` 和 `channel`，天生支持多 Agent 节点的并行调度（Fan-out / Fan-in）。
-- **零冗余抽象**：不到 1000 行核心代码，看懂源码只需要半天，极度容易二次开发。
-- **多模型兼容**：一套代码，完美兼容 OpenAI、DeepSeek、硅基流动以及本地的 Ollama 模型。
+本项目经历了三个阶段的演进，逐步实现了越来越强大的 Agent 能力：
 
----
+### Phase 1: 基础架构与 DAG 引擎
+- **Schema 定义**: 统一的消息（Message）、状态（State）和工具（Tool）数据结构。
+- **大模型接入**: 原生支持 DeepSeek/OpenAI 兼容的 API 调用。
+- **记忆管理**: 实现了基于滑动窗口的短期记忆（ShortTermMemory）。
+- **DAG 执行引擎**: 支持串行和并行的节点执行图，能够将复杂任务拆解为多个子节点。
 
-## 🎯 核心进阶特性：带“决策回放”的 Agent (Replayable Agent)
+### Phase 2: 可观测性与持久化
+- **全局状态追踪**: 引入 `TraceLog` 结构，详细记录每个节点的执行过程和状态流转。
+- **JSON 思考链**: 强制大模型输出 JSON 格式的思考过程（Chain of Thought）并进行结构化解析。
+- **终端回放**: 实现 `/trace` 命令，在终端随时查看 Agent 的内部思考和执行轨迹。
+- **长期记忆**: 增加了简单的文件系统长期记忆持久化，实现基础的记忆固化功能。
 
-在普通的 Agent 框架中，大模型的思考过程往往是一个“黑盒”。Synapse 引入了**企业级可观测性**设计：
+### Phase 3: 蓝图树 (Blueprint Tree) 引擎 [当前进展]
+- **双向多叉树结构**: 引入了带有 `Parent` 和 `Children` 指针的 `TreeNode`。
+- **状态隔离**: 实现了全局状态的深拷贝（`State.Clone()`），保证每个节点拥有独立的执行上下文。
+- **非递归遍历**: 实现基于队列（BFS/DFS）的非递归执行调度，防止深树导致栈溢出。
+- **分支推演准备**: 核心基建已完成，即将支持“多分支推演”（Tree of Thoughts）和“时光回溯”功能。
 
-- **🗂️ 状态快照 (State Trace)**：基于 DAG 图引擎，在每个节点执行时，自动记录上下文状态、动作与思考链 (Chain of Thought)。
-- **⏪ 决策回放 (Replay)**：支持按时间轴回放 Agent 的完整思考过程（“为什么当时这么选”、“依据来自哪里”）。
-- **🔍 异常溯源**：当任务执行失败时，可精确追溯到具体失败的并发节点与历史状态。
+## 🚀 快速开始
 
-*简历亮点建议写法：*
-> **“设计可回放的 Agent Memory System，支持决策溯源、上下文快照恢复与证据链接。基于 Go 并发特性实现 DAG 并行图调度器，显著提升多步任务执行效率。”**
+### 1. 配置 API Key
+在项目根目录创建一个 `api.txt` 文件，填入你的大模型 API Key（目前默认使用 DeepSeek 接口，可自行在 `main.go` 中修改 BaseURL）。
+> **注意**: `api.txt` 已被加入 `.gitignore`，请勿将你的真实 Key 提交到版本控制系统。
 
----
+### 2. 运行项目
+确保你已经安装了 Go (>= 1.20)，在终端执行：
+```bash
+go run main.go
+```
 
-## 🚀 开发进度
+### 3. 交互命令
+- 输入普通文本与 AI 进行对话。
+- 输入 `/trace` 查看刚刚执行的完整内部思考过程。
+- 输入 `exit` 退出程序。
 
-### Phase 1: 基础架构 (已完成)
-- [x] **统一 Schema**：标准化 Message, Tool, State 数据结构
-- [x] **LLM Provider**：极简的 OpenAI 兼容客户端 (支持 DeepSeek)
-- [x] **DAG 执行引擎**：基于图的串行/并行任务调度器
-- [x] **Memory 模块**：Short-term 短期滑动窗口记忆 & Long-term 长期文件记忆
+## 📂 目录结构
 
-### 🔒 安全提醒：配置 API Key
-为了防止 API Key 泄漏到 GitHub，本项目使用本地文件读取的方式：
-1. 在项目根目录创建 `api.txt` 文件。
-2. 将你的 DeepSeek API Key（例如 `sk-xxxxxx`）直接粘贴到文件中，不要包含任何多余空格或换行。
-3. `api.txt` 已被加入 `.gitignore`，不会被提交到版本库中。
+```text
+synapse/
+├── graph/       # 执行引擎核心 (包含 DAG 和 Blueprint Tree 实现)
+├── llm/         # 大模型 API 客户端 (支持 OpenAI 兼容格式)
+├── memory/      # 短期记忆与上下文管理
+├── schema/      # 全局数据结构 (State, Message, TraceLog 等)
+├── main.go      # 项目入口和装配逻辑
+└── README.md    # 项目说明
+```
 
-### Phase 2: 高级可观测性 (已完成)
-- [x] **TraceLog 结构**：改造全局状态，支持执行轨迹记录
-- [x] **JSON 思考链解析**：强迫 LLM 输出思考过程并捕获
-- [x] **回放引擎 (Replayer)**：在终端实现 `/trace` 命令回放功能
+## 📜 许可证
 
-### Phase 3: Blueprint Tree 蓝图树引擎 (即将开始，核心护城河)
-放弃传统的单向 DAG，构建**带状态快照的双向多叉树**：
-- [ ] **State Snapshot (状态快照)**：节点间状态深度拷贝，实现时空穿梭与回滚。
-- [ ] **Tree-based Graph (树形调度器)**：支持节点的分支 (Fork) 与重演 (Replay)。
-- [ ] **Blueprint Parser (蓝图协议)**：支持 JSON/YAML 格式的 Agent 逻辑导入导出与分享。
-
-## 📄 许可证
-本项目采用 **Apache License 2.0** 协议开源。
+本项目采用 [Apache License 2.0](LICENSE) 开源协议。你可以自由地使用、修改和分发代码，但请保留原作者的版权声明。

@@ -210,3 +210,32 @@ func (s *State) PrintTraces() {
 		fmt.Println("------------------------------------------")
 	}
 }
+
+// ==========================================
+// Phase 3 新增：蓝图引擎核心 - 状态快照 (Deep Copy)
+// ==========================================
+
+// Clone 深度拷贝当前的状态，返回一个全新的 State 实例。
+// 这是实现“时空穿梭”和“多叉树分支”的核心！
+func (s *State) Clone() *State {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// 1. 创建一个新的空 State
+	newState := NewState()
+
+	// 2. 拷贝 Messages (切片的深拷贝)
+	newState.Messages = make([]Message, len(s.Messages))
+	copy(newState.Messages, s.Messages)
+
+	// 3. 拷贝 Data (Map 的深拷贝)
+	// 注意：这里我们假设 value 是基本类型（string, int 等）。
+	// 如果 value 里存了复杂的指针，这里还需要更深层的反射拷贝，但目前这样足够了。
+	for k, v := range s.Data {
+		newState.Data[k] = v
+	}
+	// 4. 拷贝 Traces (黑匣子记录的深拷贝)
+	newState.Traces = make([]TraceLog, len(s.Traces))
+	copy(newState.Traces, s.Traces)
+	return newState
+}
