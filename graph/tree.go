@@ -87,40 +87,82 @@ func (t *Tree) Run(ctx context.Context, startNode *TreeNode, initialState *schem
 	}
 	queue := []task{{node: startNode, state: initialState}}
 
-	// 2. 开始非递归循环调度
+	// 2. 开始非递归循环调度 (BFS 广度优先)
 	for len(queue) > 0 {
-		// 检查上下文是否被取消
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("tree execution canceled: %w", err)
+		// 取出当前层级的所有任务
+		levelSize := len(queue)
+		var currentLevelTasks []task
+		for i := 0; i < levelSize; i++ {
+			currentLevelTasks = append(currentLevelTasks, queue[i])
+		}
+		queue = queue[levelSize:] // 切片前移
+
+		// 我们使用 goroutine 并发执行这一层的所有节点！
+		var wg sync.WaitGroup
+		errCh := make(chan error, len(currentLevelTasks))
+
+		for _, taskItem := range currentLevelTasks {
+			wg.Add(1)
+			go func(currentTask task) {
+				defer wg.Done()
+
+				if err := ctx.Err(); err != nil {
+					errCh <- fmt.Errorf("tree execution canceled: %w", err)
+					return
+				}
+
+				currNode := currentTask.node
+				currState := currentTask.state
+
+				fmt.Printf("▶ 正在执行蓝图节点: [%s] (ID: %s)\n", currNode.Name, currNode.ID)
+				currState.AddTrace(currNode.Name, "NodeStart", "开始执行蓝图节点", nil)
+
+				// 3. 执行当前节点的业务逻辑
+				if currNode.RunFunc != nil {
+					if err := currNode.RunFunc(ctx, currState); err != nil {
+						currState.AddTrace(currNode.Name, "NodeError", fmt.Sprintf("执行失败: %v", err), nil)
+						errCh <- fmt.Errorf("node [%s] failed: %w", currNode.Name, err)
+						return
+					}
+				}
+				currState.AddTrace(currNode.Name, "NodeSuccess", "节点执行成功", nil)
+
+				// 4. 保存当前节点的状态快照！
+				currNode.Snapshot = currState.Clone()
+
+				// 5. 把当前状态里的新数据写回到传入的根状态中 (全局黑板)
+				for k, v := range currState.Data {
+					initialState.SetData(k, v)
+				}
+				
+				// 修复专家节点记忆滞后问题：将当前节点的私有消息也合并到全局状态中
+				initialState.SetMessages(currState.GetMessages())
+			}(taskItem)
 		}
 
-		// 从队列头部取出一个任务 (出队)
-		currentTask := queue[0]
-		queue = queue[1:] // 切片前移
+		// 等待这一层所有节点执行完毕
+		wg.Wait()
+		close(errCh)
 
-		currNode := currentTask.node
-		currState := currentTask.state
-
-		fmt.Printf("▶ 正在执行蓝图节点: [%s] (ID: %s)\n", currNode.Name, currNode.ID)
-		currState.AddTrace(currNode.Name, "NodeStart", "开始执行蓝图节点", nil)
-
-		// 3. 执行当前节点的业务逻辑
-		if currNode.RunFunc != nil {
-			if err := currNode.RunFunc(ctx, currState); err != nil {
-				currState.AddTrace(currNode.Name, "NodeError", fmt.Sprintf("执行失败: %v", err), nil)
-				return fmt.Errorf("node [%s] failed: %w", currNode.Name, err)
+		// 检查是否有节点报错
+		for err := range errCh {
+			if err != nil {
+				return err
 			}
 		}
-		currState.AddTrace(currNode.Name, "NodeSuccess", "节点执行成功", nil)
 
-		// 4. [核心] 保存当前节点的状态快照！
-		// 这样以后用户如果想从这个节点重新开始，直接取这个 Snapshot 就行了。
-		currNode.Snapshot = currState.Clone()
+		// 6. 这一层执行完毕且状态合并后，把所有子节点加入下一层的队列
+		// 注意：为了避免同一个子节点被多次加入（比如多个专家指向同一个评估节点），我们需要去重
+		nextLevelNodes := make(map[string]*TreeNode)
+		for _, currentTask := range currentLevelTasks {
+			for _, child := range currentTask.node.Children {
+				nextLevelNodes[child.ID] = child
+			}
+		}
 
-		// 5. 把所有子节点加入队列，继续往下执行
-		// 注意：每个子节点都必须拿到父节点状态的**独立拷贝**，防止分支间互相污染！
-		for _, child := range currNode.Children {
-			childState := currNode.Snapshot.Clone() // 再次深拷贝，分配给子节点
+		for _, child := range nextLevelNodes {
+			// 传递给子节点的是合并后的最新的全局 state 的拷贝！
+			childState := initialState.Clone() 
 			queue = append(queue, task{
 				node:  child,
 				state: childState,

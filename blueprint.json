@@ -1,0 +1,54 @@
+{
+    "name": "Tree_of_Thoughts_Blueprint",
+    "description": "多分支推演思维树，带有乐观、悲观、理性三个并行的专家节点，最后由裁判汇总评估。",
+    "nodes": [
+      {
+        "id": "node_root_01",
+        "name": "LoadLongTermMemory",
+        "type": "memory_load",
+        "children": ["node_llm_opt1", "node_llm_opt2", "node_llm_opt3"]
+      },
+      {
+        "id": "node_llm_opt1",
+        "name": "LLM_Optimist",
+        "type": "llm_think",
+        "system_prompt": "你是一个极度乐观、热情、充满正能量的 AI 助手。这是你对用户的长期记忆：[%v]",
+        "input_keys": ["long_term_knowledge"],
+        "output_key": "response_LLM_Optimist",
+        "children": ["node_eval_04"]
+      },
+      {
+        "id": "node_llm_opt2",
+        "name": "LLM_Pessimist",
+        "type": "llm_think",
+        "system_prompt": "你是一个极度悲观、谨慎、总是想到最坏的情况的 AI 助手。这是你对用户的长期记忆：[%v]",
+        "input_keys": ["long_term_knowledge"],
+        "output_key": "response_LLM_Pessimist",
+        "children": []
+      },
+      {
+        "id": "node_llm_opt3",
+        "name": "LLM_Logical",
+        "type": "llm_think",
+        "system_prompt": "你是一个绝对理性、像机器人一样只说客观事实的 AI 助手。这是你对用户的长期记忆：[%v]",
+        "input_keys": ["long_term_knowledge"],
+        "output_key": "response_LLM_Logical",
+        "children": []
+      },
+      {
+        "id": "node_eval_04",
+        "name": "LLM_Evaluator",
+        "type": "evaluator",
+        "system_prompt": "你是一个公正的裁判。你需要评估三位专家的回答，选出最适合回复用户的那个。",
+        "input_keys": ["response_LLM_Optimist", "response_LLM_Pessimist", "response_LLM_Logical"],
+        "output_key": "ai_response",
+        "children": ["node_reflect_05"]
+      },
+      {
+        "id": "node_reflect_05",
+        "name": "Reflection_And_Save",
+        "type": "memory_save",
+        "children": []
+      }
+    ]
+  }

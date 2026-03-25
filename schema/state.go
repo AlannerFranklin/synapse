@@ -145,11 +145,16 @@ func (s *State) GetData(key string) (any, bool) {
 	return val, ok
 }
 
-// AppendMessage 向状态中追加一条消息（并发安全）
-func (s *State) AppendMessage(msg Message) {
+// AddMessage 向当前状态的短期记忆中追加消息
+func (s *State) AddMessage(msg Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	
+	// 简单的滑动窗口逻辑：最多保留 10 条
 	s.Messages = append(s.Messages, msg)
+	if len(s.Messages) > 10 {
+		s.Messages = s.Messages[len(s.Messages)-10:]
+	}
 }
 
 // GetMessages 获取当前所有的消息（并发安全）
@@ -160,6 +165,14 @@ func (s *State) GetMessages() []Message {
 	msgs := make([]Message, len(s.Messages))
 	copy(msgs, s.Messages)
 	return msgs
+}
+
+// SetMessages 直接覆盖当前的消息列表（用于状态同步）
+func (s *State) SetMessages(msgs []Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Messages = make([]Message, len(msgs))
+	copy(s.Messages, msgs)
 }
 
 // ==========================================

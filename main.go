@@ -3,19 +3,25 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json" // 👈 新增：用于解析 JSON
 	"fmt"
 	"log"
 	"os"
 	"strings"
 
-	"github.com/AlannerFranklin/synapse/graph"
+	"github.com/AlannerFranklin/synapse/graph/parser"
 	"github.com/AlannerFranklin/synapse/llm"
-	"github.com/AlannerFranklin/synapse/memory"
 	"github.com/AlannerFranklin/synapse/schema"
+	"github.com/AlannerFranklin/synapse/web"
 )
 
 func main() {
+	// ==========================================
+	// 【新增】启动 WebUI 服务器
+	// 注意：StartServer 会阻塞当前进程，所以它后面的 CLI 循环不会执行了。
+	// 如果你想同时保留 CLI 和 Web，可以使用 go web.StartServer("8080")
+	// 但为了简单，我们可以直接在这里启动 Web。
+	// ==========================================
+	web.StartServer("8080")
 	fmt.Println("========================================")
 	fmt.Println("🧠 Synapse Agent 终极形态已启动！")
 	fmt.Println("========================================")
@@ -29,118 +35,16 @@ func main() {
 	apiKey := strings.TrimSpace(string(apiKeyBytes))
 	
 	provider := llm.NewOpenAIProvider("https://api.deepseek.com/v1", apiKey, "deepseek-chat")
-	shortMem := memory.NewShortTermMemory(6) // 短期记忆：记住最近 6 句话
-	dbPath := "long_term_memory.txt"         // 长期记忆文件路径
+	dbPath := "long_term_memory.txt" // 长期记忆文件路径
 
-	// 2. 构建 Agent 蓝图树 (Blueprint Tree)
-	// 我们先定义三个节点，然后再把它们像拼图一样拼起来！
-
-	// 节点 A: 提取长期记忆 (作为树的根节点 Root)
-	nodeLoadMemory := &graph.TreeNode {
-		ID:   "node_root_01",
-		Name: "LoadLongTermMemory",
-		RunFunc: func(ctx context.Context, state *schema.State) error {
-			content, err := os.ReadFile(dbPath)
-			var longTermStr string
-			if err == nil && len(content) > 0 {
-				longTermStr = string(content)
-			} else {
-				longTermStr = "暂无。"
-			}
-			state.SetData("long_term_knowledge", longTermStr)
-			return nil
-		},
-	}
-	// 节点 B: 大模型核心思考
-	nodeLLMThinking := &graph.TreeNode{
-		ID:   "node_llm_02",
-		Name: "LLM_Thinking",
-		RunFunc: func(ctx context.Context, state *schema.State) error {
-			userInput, _ := state.GetData("user_input")
-			longTermKnowledge, _ := state.GetData("long_term_knowledge")
-
-			sysPrompt := fmt.Sprintf(`你是一个聪明的 AI 助手。
-这是你对用户的长期记忆：[%s]
-
-【强制要求】
-你必须且只能返回一个 JSON 格式的字符串，不要输出 json 标记。
-JSON 的结构必须如下：
-{
-  "thought": "你的思考过程",
-  "response": "你最终要回答的话"
-}`, longTermKnowledge)
-
-			finalMessages := []schema.Message{{Role: schema.RoleSystem, Content: sysPrompt}}
-			finalMessages = append(finalMessages, shortMem.GetMessages()...)
-			finalMessages = append(finalMessages, schema.Message{Role: schema.RoleUser, Content: userInput.(string)})
-
-			resp, err := provider.Generate(ctx, finalMessages, &llm.GenerateOptions{Temperature: 0.7})
-			if err != nil {
-				return err
-			}
-
-			type LLMResponse struct {
-				Thought  string `json:"thought"`
-				Response string `json:"response"`
-			}
-			var parsedResp LLMResponse
-			err = json.Unmarshal([]byte(resp.Content), &parsedResp)
-			if err != nil {
-				fmt.Printf("\n🤖 AI: %s\n", resp.Content)
-				return nil
-			}
-
-			fmt.Printf("\n🤔 [AI 思考过程]: %s\n", parsedResp.Thought)
-			fmt.Printf("🤖 AI: %s\n", parsedResp.Response)
-
-			state.AddTrace("LLM_Thinking", "分析与回答", parsedResp.Thought, parsedResp.Response)
-			
-			// 重点：在这里我们不直接操作外部的 shortMem 变量了，
-			// 而是把 AI 的回复塞进 state 里，让后续节点去处理（保持状态纯粹洁净）
-			state.SetData("ai_response", parsedResp.Response)
-			return nil
-		},
+	// 2. 使用 DSL 解析器，从 JSON 文件动态构建蓝图树！
+	// 我们不再在 main.go 里硬编码组装节点了，而是做到“配置即代码”。
+	// 注意：shortMem 已经被我们下放到 State 里面了，所以这里不需要传 shortMem 啦！
+	blueprintTree, err := parser.ParseFromFile("blueprint.json", provider, dbPath)
+	if err != nil {
+		log.Fatalf("❌ 加载蓝图配置文件失败: %v", err)
 	}
 
-	// 节点 C: 反思与持久化
-	nodeReflection := &graph.TreeNode{
-		ID:   "node_reflect_03",
-		Name: "Reflection_And_Save",
-		RunFunc: func(ctx context.Context, state *schema.State) error {
-			userInput, _ := state.GetData("user_input")
-			aiResponse, ok := state.GetData("ai_response")
-			
-			if ok {
-				// 更新短期记忆
-				shortMem.AddMessage(schema.Message{Role: schema.RoleUser, Content: userInput.(string)})
-				shortMem.AddMessage(schema.Message{Role: schema.RoleAssistant, Content: aiResponse.(string)})
-			}
-
-			inputStr := userInput.(string)
-			if strings.Contains(inputStr, "记住") {
-				f, err := os.OpenFile(dbPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-				if err != nil {
-					return err
-				}
-				defer f.Close()
-				extractInfo := strings.Replace(inputStr, "记住", "", -1)
-				f.WriteString("- " + extractInfo + "\n")
-				fmt.Println("   [后台系统] 💾 已将重要信息写入长期记忆库！")
-			}
-			return nil
-		},
-	}
-
-	// ==========================================
-	// 组装蓝图树！(组装的艺术)
-	// ==========================================
-	blueprintTree := graph.NewTree(nodeLoadMemory) // 根节点是 LoadMemory
-	
-	// LoadMemory 执行完后，把结果交给 LLMThinking
-	blueprintTree.AddChild("node_root_01", nodeLLMThinking)
-	
-	// LLMThinking 执行完后，把结果交给 Reflection
-	blueprintTree.AddChild("node_llm_02", nodeReflection)
 	// ==========================================
 	// 3. 启动交互循环，每次用户输入都跑一遍 Graph
 	// ==========================================
@@ -148,6 +52,9 @@ JSON 的结构必须如下：
 	
 	// 【Phase 2 新增】：在循环外部创建一个全局的 State，用于贯穿整个对话
 	globalState := schema.NewState()
+
+	// 【Phase 3 新增】：时光机！保存每一轮对话前的全局状态快照
+	var stateHistory []*schema.State
 
 	for {
 		fmt.Print("\n🧑 你: ")
@@ -167,7 +74,24 @@ JSON 的结构必须如下：
 			continue
 		}
 
-		// 每次运行 Graph 前，清空上一轮的轨迹，但保留数据
+		// 【Phase 3 新增】：拦截 /revert 命令 (时光回溯)
+		if input == "/revert" {
+			if len(stateHistory) > 1 {
+				// 回退到上一次对话前的状态 (去掉最后一个快照)
+				stateHistory = stateHistory[:len(stateHistory)-1]
+				// 恢复全局状态为历史快照的深拷贝
+				globalState = stateHistory[len(stateHistory)-1].Clone()
+				fmt.Println("⏪ [时光机]: 已成功回溯到上一轮对话状态！你可以重新提问了。")
+			} else {
+				fmt.Println("❌ [时光机]: 已经没有更早的记忆可以回溯了。")
+			}
+			continue
+		}
+
+		// 每次正常对话前，把当前状态 Clone 一份存入时光机
+		stateHistory = append(stateHistory, globalState.Clone())
+
+		// 每次运行 Graph 前，清空上一轮的轨迹，但保留数据和记忆
 		globalState.Traces = make([]schema.TraceLog, 0)
 		
 		// 把用户最新的输入放进去
